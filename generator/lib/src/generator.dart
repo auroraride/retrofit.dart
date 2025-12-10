@@ -76,7 +76,6 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
   final RetrofitOptions globalOptions;
 
   static const _baseUrlVar = 'baseUrl';
-  static const _errorLoggerVar = 'errorLogger';
   static const _queryParamsVar = 'queryParameters';
   static const _optionsVar = '_options';
   static const _localHeadersVar = '_headers';

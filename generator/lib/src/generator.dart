@@ -10,10 +10,13 @@ import 'package:built_collection/built_collection.dart';
 import 'package:code_builder/code_builder.dart';
 import 'package:dart_style/dart_style.dart';
 import 'package:dio/dio.dart';
+import 'package:fpdart/fpdart.dart';
 import 'package:retrofit/retrofit.dart' as retrofit;
 import 'package:source_gen/source_gen.dart';
 import 'package:tuple/tuple.dart';
 import 'package:protobuf/protobuf.dart';
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/element/type.dart';
 
 const _analyzerIgnores =
     '// ignore_for_file: unnecessary_brace_in_string_interps,no_leading_underscores_for_local_identifiers';
@@ -23,6 +26,7 @@ class RetrofitOptions {
     this.autoCastResponse,
     this.emptyRequestBody,
     this.className,
+    this.useResult,
   });
 
   RetrofitOptions.fromOptions([BuilderOptions? options])
@@ -32,11 +36,14 @@ class RetrofitOptions {
         emptyRequestBody =
             (options?.config['empty_request_body']?.toString() ?? 'false') ==
                 'true',
-        className = options?.config['class-name']?.toString();
+        className = options?.config['class-name']?.toString(),
+        useResult =
+            (options?.config['use_result']?.toString() ?? 'false') == 'true';
 
   final bool? autoCastResponse;
   final bool? emptyRequestBody;
   final String? className;
+  final bool? useResult;
 }
 
 class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
@@ -93,7 +100,7 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
       parser: parser ?? retrofit.Parser.JsonSerializable,
     );
     final baseUrl = clientAnnotation.baseUrl;
-    final annotClassConsts = element.constructors
+    final annotateClassConsts = element.constructors
         .where((c) => !c.isFactory && !c.isDefaultConstructor);
     final classBuilder = Class((c) {
       c
@@ -101,12 +108,12 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
         ..types.addAll(element.typeParameters.map((e) => refer(e.name)))
         ..fields.addAll([_buildDioFiled(), _buildBaseUrlFiled(baseUrl)])
         ..constructors.addAll(
-          annotClassConsts.map(
+          annotateClassConsts.map(
             (e) => _generateConstructor(baseUrl, superClassConst: e),
           ),
         )
         ..methods.addAll(_parseMethods(element));
-      if (annotClassConsts.isEmpty) {
+      if (annotateClassConsts.isEmpty) {
         c.constructors.add(_generateConstructor(baseUrl));
         c.implements.add(refer(_generateTypeParameterizedName(element)));
       } else {
@@ -122,14 +129,14 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
     });
 
     final emitter = DartEmitter(useNullSafetySyntax: true);
-    return DartFormatter()
+    return DartFormatter(languageVersion: DartFormatter.latestLanguageVersion)
         .format([_analyzerIgnores, classBuilder.accept(emitter)].join('\n\n'));
   }
 
   Field _buildDioFiled() => Field(
         (m) => m
           ..name = _dioVar
-          ..type = refer('Dio')
+          ..type = refer('NetRequest')
           ..modifier = FieldModifier.final$,
       );
 
@@ -319,6 +326,16 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
           ? type.typeArguments.first
           : null;
 
+  DartType? _getRecordsFirstTypeOf(DartType type) =>
+      type is RecordTypeImpl && type.positionalFields.isNotEmpty
+          ? type.positionalFields.first.type
+          : null;
+
+  DartType? _getLastTypeOf(DartType type) =>
+      type is InterfaceType && type.typeArguments.isNotEmpty
+          ? type.typeArguments.last
+          : null;
+
   DartType? _getResponseType(DartType type) => _genericOf(type);
 
   /// get types for `Map<String, List<User>>`, `A<B,C,D>`
@@ -364,6 +381,14 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
             : MethodModifier.asyncStar
         ..annotations.add(const CodeExpression(Code('override')));
 
+      if (globalOptions.useResult == true) {
+        final returnType = m.returnType;
+        if (returnType is ParameterizedType &&
+            returnType.typeArguments.first is! VoidType) {
+          mm.annotations.add(const CodeExpression(Code('useResult')));
+        }
+      }
+
       /// required parameters
       mm.requiredParameters.addAll(
         m.parameters.where((it) => it.isRequiredPositional).map(
@@ -406,7 +431,7 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
       final value = v.peek(_valueVar)?.stringValue ?? k.displayName;
       definePath = definePath?.replaceFirst(
         '{$value}',
-        "\${${k.displayName}${k.type.element?.kind == ElementKind.ENUM ? '.name' : ''}}",
+        "\${${k.displayName}${k.type.element?.kind == ElementKind.ENUM ? _hasToJson(k.type) ? '.toJson()' : '.name' : ''}}",
       );
     });
     return literal(definePath);
@@ -534,8 +559,17 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
 
     final isWrapped =
         _typeChecker(retrofit.HttpResponse).isExactlyType(wrappedReturnType);
-    final returnType =
-        isWrapped ? _getResponseType(wrappedReturnType) : wrappedReturnType;
+    final isEither = _typeChecker(Either).isExactlyType(wrappedReturnType);
+    final isRecords = wrappedReturnType is RecordTypeImpl;
+
+    final returnType = isWrapped
+        ? _getResponseType(wrappedReturnType)
+        : isEither
+            ? _getLastTypeOf(wrappedReturnType)
+            : isRecords
+                ? _getRecordsFirstTypeOf(wrappedReturnType)
+                : wrappedReturnType;
+    blocks.add(Code('try {\n'));
     if (returnType == null || 'void' == returnType.toString()) {
       if (isWrapped) {
         blocks
@@ -930,7 +964,7 @@ You should create a new class to encapsulate the response.
               break;
             case retrofit.Parser.FlutterCompute:
               mapperCode = refer(
-                'await compute(deserialize${_displayString(returnType)}, $_resultVar.data!)',
+                'await compute(deserialize${_displayString(returnType).replaceFirst('<', '').replaceFirst('>', '')}, $_resultVar.data!)',
               );
               break;
           }
@@ -953,10 +987,18 @@ You should create a new class to encapsulate the response.
       $returnAsyncWrapper httpResponse;
       '''),
         );
+      } else if (isEither) {
+        blocks.add(Code('return Either.right(value);'));
+      } else if (isRecords) {
+        blocks.add(Code('return (value, null);'));
       } else {
         blocks.add(Code('$returnAsyncWrapper value;'));
       }
     }
+    blocks.add(Code('''} on DioException catch(e) {
+  ${isEither ? 'return Either.left(e);' : isRecords ? 'return (null, e);' : ''}
+}
+'''));
 
     return Block.of(blocks);
   }
@@ -980,7 +1022,32 @@ You should create a new class to encapsulate the response.
       } catch (_) {}
     }
 
-    return genericArgumentFactories;
+    return genericArgumentFactories ||
+        hasGenericArgumentFactoriesCompatibleSignature(dartType);
+  }
+
+  bool hasGenericArgumentFactoriesCompatibleSignature(DartType? dartType) {
+    if (dartType == null) return false;
+    final element = dartType.element;
+    if (element is! InterfaceElement) return false;
+
+    final typeParameters = element.typeParameters;
+    if (typeParameters.isEmpty) return false;
+
+    final constructors = element.constructors;
+    if (constructors.isEmpty) return false;
+    final fromJson = constructors.firstWhereOrNull(
+      (constructor) => constructor.name == 'fromJson',
+    );
+
+    if (fromJson == null || fromJson.parameters.length == 1) return false;
+
+    final fromJsonArguments = fromJson.parameters;
+
+    if (typeParameters.length != (fromJsonArguments.length - 1)) {
+      return false;
+    }
+    return true;
   }
 
   String _getInnerJsonSerializableMapperFn(DartType dartType) {
@@ -1633,7 +1700,7 @@ if (T != dynamic &&
                   .assign(refer(bodyName.displayName))
                   .statement,
             );
-          } else if (_missingSerialize(ele.enclosingElement, bodyName.type)) {
+          } else if (_missingSerialize(ele.enclosingElement3, bodyName.type)) {
             log.warning(
                 '${_displayString(bodyName.type)} must provide a `serialize${_displayString(bodyName.type)}()` method which returns a Map.\n'
                 "It is programmer's responsibility to make sure the ${_displayString(bodyName.type)} is properly serialized");

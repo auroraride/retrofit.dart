@@ -2206,8 +2206,8 @@ if (T != dynamic &&
                   : refer(p.displayName).property('toIso8601String').call([]);
             } else if (_isEnum(p.type) && !_hasToJson(p.type)) {
               value = p.type.nullabilitySuffix == NullabilitySuffix.question
-                  ? refer(p.displayName)
-                  : refer(p.displayName);
+                  ? refer(p.displayName).nullSafeProperty('name')
+                  : refer(p.displayName).property('name');
             } else {
               value = p.type.nullabilitySuffix == NullabilitySuffix.question
                   ? refer(p.displayName).nullSafeProperty('toJson').call([])

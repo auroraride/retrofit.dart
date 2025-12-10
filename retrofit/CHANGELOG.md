@@ -1,4 +1,104 @@
-# Changelog
+## 4.9.1 (Unreleased)
+- Make Response parameter in ParseErrorLogger callback optional for backward compatibility
+  - The `response` parameter in `logError` is now a named optional parameter `{Response? response}`
+  - This allows existing implementations without the response parameter to continue working
+
+## 4.9.0
+- Version bump to 4.9.0
+
+## 4.8.0
+- Add global headers support to @RestApi annotation
+- This version is required for retrofit_generator 10.1.0+
+
+## 4.7.2
+- Add comments for each public methods
+- Enable linter rules for public api docs
+
+## 4.7.1
+- update to new tag format with prefix letter v
+
+## 4.7.0
+
+- Updates minimum supported SDK version to Dart 3.8.
+
+## 4.5.0
+
+- Added `@BodyExtra` annotation to support adding individual fields to request body, enhancing flexibility and extensibility.
+
+  Example :
+
+  ```dart
+  @http.POST('/path/')
+  Future<String> updateValue(@BodyExtra('id') int id, @BodyExtra('value') String value);
+  ```
+
+  The request body will be：
+  
+  ```json
+  {"id": 123, "value": "some value"}
+  ```
+
+## 4.4.2
+
+- Introduced CallAdapters, This feature allows adaptation of a Call with return type R into the type of T. 
+  e.g. Future<User> to Future<Result<User>>
+
+  Code Example:
+```dart
+  class MyCallAdapter<T> extends CallAdapter<Future<T>, Future<Either<ApiError, T>>> {
+    @override
+    Future<Either<ApiError, T>> adapt(Future<T> Function() call) async {
+      try {
+        final response = await call();
+        return Either.right(response);
+      }
+      catch (e) {
+        return Either.left(ApiError(e))
+      }
+    }
+  }
+  
+  @RestApi()
+  abstract class RestClient {
+    factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
+
+    @UseCallAdapter(MyCallAdapter)
+    @GET('/')
+    Future<User> getTasks();
+  }
+```
+
+## 4.4.0
+
+- Added `@TypedExtras` to pass extra options to dio requests using custom annotations.
+
+  Example :
+
+  ```dart
+  @TypedExtrasSubClass(
+    id: 'abcd',
+    count: 5,
+    shouldProceed: true,
+  )
+  @http.POST('/path/')
+  Future<String> myMethod(@Extras() Map<String, dynamic> extras);
+  ```
+
+## 4.3.0
+
+- Required Dart 2.19
+- Update README
+
+## 4.1.0
+
+- Added `@Extras` to pass extra options to dio requests, response, transformer and interceptors.
+
+  Example :
+
+  ```dart
+  @http.POST('/path/')
+  Future<String> myMethod(@Extras() Map<String, dynamic> extras);
+  ```
 
 ## 4.0.0
 

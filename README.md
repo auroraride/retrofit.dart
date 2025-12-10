@@ -1,11 +1,11 @@
+
 # Retrofit For Dart
 
 [![retrofit](https://img.shields.io/pub/v/retrofit?label=retrofit&style=flat-square)](https://pub.dartlang.org/packages/retrofit)
 [![retrofit_generator](https://img.shields.io/pub/v/retrofit_generator?label=retrofit_generator&style=flat-square)](https://pub.dartlang.org/packages/retrofit_generator)
 ![Pub Likes](https://img.shields.io/pub/likes/retrofit)
 [![Testing](https://github.com/trevorwang/retrofit.dart/actions/workflows/test.yml/badge.svg)](https://github.com/trevorwang/retrofit.dart/actions/workflows/test.yml)
-
-
+[![Coverage Status](https://coveralls.io/repos/github/trevorwang/retrofit.dart/badge.svg?branch=master)](https://coveralls.io/github/trevorwang/retrofit.dart?branch=master)
 
 retrofit.dart is a type conversion [dio](https://github.com/flutterchina/dio/) client generator using [source_gen](https://github.com/dart-lang/source_gen) and inspired by [Chopper](https://github.com/lejard-h/chopper) and [Retrofit](https://github.com/square/retrofit).
 
@@ -17,14 +17,14 @@ Add the generator to your dev dependencies
 
 ```yaml
 dependencies:
-  retrofit: '>=4.0.0 <5.0.0'
-  logger: any  #for logging purpose
-  json_annotation: ^4.8.1
+  retrofit: ^4.9.0
+  logger: ^2.6.0  # for logging purpose
+  json_annotation: ^4.9.0
 
 dev_dependencies:
-  retrofit_generator: '>=7.0.0 <8.0.0'   // required dart >=2.19
-  build_runner: '>=2.3.0 <4.0.0'
-  json_serializable: ^6.6.2
+  retrofit_generator: ^10.0.1
+  build_runner: ^2.6.0
+  json_serializable: ^6.10.0
 ```
 
 ### Define and Generate your API
@@ -38,7 +38,7 @@ part 'example.g.dart';
 
 @RestApi(baseUrl: 'https://5d42a6e2bc64f90014a56ca0.mockapi.io/api/v1/')
 abstract class RestClient {
-  factory RestClient(Dio dio, {String baseUrl}) = _RestClient;
+  factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
 
   @GET('/tasks')
   Future<List<Task>> getTasks();
@@ -59,15 +59,63 @@ class Task {
 }
 ```
 
+### Configuration
+
+You can customize the code generation behavior by creating a `build.yaml` file in your project root:
+
+```yaml
+targets:
+  $default:
+    builders:
+      retrofit_generator:
+        options:
+          # Control whether to add '// dart format off/on' comments (default: true)
+          format_output: true
+          # Enable automatic response type casting (default: true)
+          auto_cast_response: true
+          # Generate empty request body for methods without parameters (default: false)
+          empty_request_body: false
+          # Enable useResult annotation for methods (default: false)
+          use_result: false
+```
+
+#### format_output
+
+By default, retrofit_generator wraps the generated code with `// dart format off` and `// dart format on` comments to preserve the formatting. If you're combining retrofit with other generators (like riverpod) and need more control over formatting, you can disable this:
+
+```yaml
+targets:
+  $default:
+    builders:
+      retrofit_generator:
+        options:
+          format_output: false
+```
+
 then run the generator
 
 ```sh
 # dart
 dart pub run build_runner build
 
-# flutter	
-flutter pub run build_runner build
+# for watch mode (recommended during development)
+dart pub run build_runner watch
 ```
+
+#### Lean Builder Support (Experimental)
+
+Retrofit now has experimental support for [lean_builder](https://pub.dev/packages/lean_builder), a faster build system for Dart. While lean_builder support is still under development, the infrastructure has been added for future use.
+
+**Important**: lean_builder is an **optional** dependency and is NOT required to use retrofit_generator. It's only needed if you want to try the experimental lean_builder support.
+
+To prepare for lean_builder support, add it to your `dev_dependencies`:
+
+```yaml
+dev_dependencies:
+  lean_builder: ^0.1.2  # Optional - only if you want to use lean_builder
+```
+
+**Note:** For now, please continue using `build_runner` as shown above. Full lean_builder integration will be available in a future release once lean_builder reaches stability.
 
 ### Use it
 
@@ -87,11 +135,11 @@ void main(List<String> args) {
 }
 ```
 
-
-
 ## More
 
-### Type Conversion
+### Types
+
+#### Types conversion
 
 > Before you use the type conversion, please make sure that a ` factory Task.fromJson(Map<String, dynamic> json)` must be provided for each model class. `json_serializable` is recommended to be used as the serialization tool.
 
@@ -107,6 +155,84 @@ class Task {
 
   final String name;
 }
+```
+
+> For enums, we rely on the `toString()` method to convert it to a string. Override the `toString()` method to return the value you want.
+
+```dart
+enum Status {
+  pending,
+  completed;
+
+  @override
+  String toString() => name;
+}
+
+@GET('/tasks/{status}')
+Future<List<Task>> getTasksByStatus(@Path() Status status);
+```
+
+#### Using dart_mappable
+
+You can use [dart_mappable](https://pub.dev/packages/dart_mappable) for type conversion by setting the parser to `Parser.DartMappable`:
+
+```dart
+@RestApi(
+  baseUrl: 'https://api.example.com',
+  parser: Parser.DartMappable,
+)
+abstract class ApiService {
+  factory ApiService(Dio dio) = _ApiService;
+
+  @GET('/tasks')
+  Future<List<Task>> getTasks();
+}
+
+@MappableClass()
+class Task with TaskMappable {
+  const Task({this.id, this.name});
+
+  final String? id;
+  final String? name;
+}
+```
+
+Don't forget to add the required dependencies:
+
+```yaml
+dependencies:
+  dart_mappable: ^4.2.0
+
+dev_dependencies:
+  dart_mappable_builder: ^4.2.0
+```
+
+And generate the code:
+
+```sh
+dart run build_runner build
+```
+
+For a complete example, see the [example_dartmappable](https://github.com/trevorwang/retrofit.dart/tree/master/example_dartmappable) directory.
+
+#### Typed extras
+If you want to add static extra to all requests.
+
+```dart
+class MetaData extends TypedExtras {
+  final String id;
+  final String region;
+
+  const MetaData({required this.id, required region});
+}
+
+@MetaData(
+  id: '1234',
+  region: 'ng',
+)
+@GET("/get")
+Future<String> fetchData();
+
 ```
 
 ### HTTP Methods
@@ -125,11 +251,14 @@ The HTTP methods in the below sample are supported.
       @Query('apikey') String apiKey,
       @Query('scope') String scope,
       @Query('type') String type,
-      @Query('from') int from);
+      @Query('from') int from,
+  );
   
   @PATCH('/tasks/{id}')
   Future<Task> updateTaskPart(
-      @Path() String id, @Body() Map<String, dynamic> map);
+    @Path() String id, 
+    @Body() Map<String, dynamic> map,
+  );
   
   @PUT('/tasks/{id}')
   Future<Task> updateTask(@Path() String id, @Body() Task task);
@@ -141,12 +270,84 @@ The HTTP methods in the below sample are supported.
   Future<Task> createTask(@Body() Task task);
   
   @POST('http://httpbin.org/post')
+  @MultiPart()
   Future<void> createNewTaskFromFile(@Part() File file);
   
   @POST('http://httpbin.org/post')
   @FormUrlEncoded()
   Future<String> postUrlEncodedFormData(@Field() String hello);
 ```
+
+#### Runtime Content-Type for Multipart Uploads
+
+Use `@PartMap()` to provide runtime metadata (like `contentType` and `fileName`) for multipart file uploads:
+
+```dart
+  @POST('/api/files')
+  @MultiPart()
+  Future<void> uploadFile({
+    @Part(name: 'file') required File file,
+    @PartMap() Map<String, dynamic>? metadata,
+  });
+  
+  // Usage - Upload different file types to the same endpoint
+  
+  // Upload a JPEG image
+  await client.uploadFile(
+    file: File('/path/to/image.jpg'),
+    metadata: {
+      'file_contentType': 'image/jpeg',
+      'file_fileName': 'photo.jpg',
+    },
+  );
+  
+  // Upload a PDF document
+  await client.uploadFile(
+    file: File('/path/to/document.pdf'),
+    metadata: {
+      'file_contentType': 'application/pdf',
+      'file_fileName': 'report.pdf',
+    },
+  );
+```
+
+The `@PartMap()` annotation accepts a `Map<String, dynamic>` with keys in the format:
+- `'<partName>_contentType'` - Sets the content type for the part
+- `'<partName>_fileName'` - Sets the file name for the part
+
+**Fallback behavior:**
+- Runtime values from `@PartMap()` override static values from `@Part()` annotation
+- If `@PartMap()` value is not provided, uses static value from `@Part()` annotation
+- If neither is provided:
+  - `fileName` defaults to the file's actual name (extracted from file path)
+  - `contentType` defaults to `null` (Dio will auto-detect based on file extension)
+
+#### Dynamic Field Names for Multiple Files
+
+Use `@Part()` with `Map<String, File>` to upload multiple files with dynamic field names:
+
+```dart
+  @POST('/api/files')
+  @MultiPart()
+  Future<void> uploadFiles(@Part() Map<String, File> files);
+  
+  // Usage - Upload multiple files with custom field names
+  await client.uploadFiles({
+    'image[0]': File('/path/to/photo1.jpg'),
+    'image[1]': File('/path/to/photo2.jpg'),
+    'document': File('/path/to/report.pdf'),
+  });
+```
+
+This feature also supports:
+- `Map<String, MultipartFile>` - For files already wrapped in MultipartFile
+- `Map<String, List<int>>` - For raw byte data
+- Nullable maps: `Map<String, File>?`
+
+**Use cases:**
+- Uploading arrays of files where each file needs a unique indexed name (e.g., `image[0]`, `image[1]`)
+- Uploading files to endpoints that require specific field names determined at runtime
+- Sending multiple files of different types in a single request
 
 ### Get original HTTP response
 
@@ -181,11 +382,44 @@ The HTTP methods in the below sample are supported.
   Future<Task> getTasks();
 ```
 
+* Add global HTTP headers to all requests in the API
+
+You can define headers at the `@RestApi` level that will be automatically included in all requests:
+
+```dart
+  @RestApi(
+    baseUrl: 'https://api.example.com',
+    headers: {
+      'User-Agent': 'MyApp/1.0.0',
+      'X-Platform': 'mobile',
+    },
+  )
+  abstract class ApiService {
+    factory ApiService(Dio dio, {String? baseUrl}) = _ApiService;
+
+    // This request will automatically include User-Agent and X-Platform headers
+    @GET('/users')
+    Future<List<User>> getUsers();
+
+    // You can add method-specific headers that combine with global headers
+    @GET('/profile')
+    @Headers(<String, dynamic>{'Authorization': 'Bearer token'})
+    Future<User> getProfile();
+
+    // Method-level headers override global headers with the same key
+    @GET('/settings')
+    @Headers(<String, dynamic>{'X-Platform': 'web'})
+    Future<Settings> getSettings();
+  }
+```
+
+**Note:** Method-level headers (via `@Headers` or `@Header` parameter) will override global headers if they have the same key.
+
 
 
 ### Error Handling
 
-`catchError(Object)` should be used for capturing the exception and failed response. You can get the detailed response info from `DioError.response`.
+`catchError(Object)` can be used for capturing the exception and failed response. You can get the detailed response info from `DioError.response`.
 
 ```dart
 client.getTask('2').then((it) {
@@ -193,9 +427,9 @@ client.getTask('2').then((it) {
 }).catchError((obj) {
   // non-200 error goes here.
   switch (obj.runtimeType) {
-    case DioError:
+    case DioException:
       // Here's the sample to get the failed response error code and message
-      final res = (obj as DioError).response;
+      final res = (obj as DioException).response;
       logger.e('Got error : ${res.statusCode} -> ${res.statusMessage}');
       break;
   default:
@@ -203,6 +437,101 @@ client.getTask('2').then((it) {
   }
 });
 ```
+
+
+Errors can also be caught and handled at the client level using CallAdapters. For example:
+
+```dart
+class ErrorAdapter<T> extends CallAdapter<Future<T>, Future<T>> {
+  @override
+  Future<T> adapt(Future<T> Function() call) {
+    try {
+      return call();
+    } catch (exception) {
+      // Handle the exception and throw whatever exception you want
+      throw MyCustomException();
+    }
+  }
+}
+
+@RestApi(callAdapter: ErrorAdapter)
+abstract class RestClient {
+  factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
+
+  @GET('/user')
+  Future<User> getUser();
+}
+```
+
+If you need to handle errors individually per API method instead of at the client level:
+
+``` dart
+@RestApi()
+abstract class RestClient {
+  factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
+
+  @GET('/user')
+  @UseCallAdapter(ErrorAdapter)
+  Future<User> getUser();
+}
+```
+
+
+
+### Relative API baseUrl
+
+If you want to use a relative `baseUrl` value in the `RestApi` annotation of the `RestClient`, you need to specify a `baseUrl` in `dio.options.baseUrl`.
+
+```dart
+@RestApi(baseUrl: '/tasks')
+abstract class RestClient {
+  factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
+
+  @GET('{id}')
+  Future<HttpResponse<Task>> getTask(@Path('id') String id);
+
+  @GET('')
+  Future<HttpResponse<List<Task>>> getTasks();
+}
+
+dio.options.baseUrl = 'https://5d42a6e2bc64f90014a56ca0.mockapi.io/api/v1';
+final client = RestClient(dio);
+```
+
+### Call Adapter
+
+This feature allows you to adapt the return type of a network call from one type to another.
+
+For example:
+Future<User> → Future<Result<User>>
+
+This feature provides flexibility in handling API responses, enabling better integration with custom response wrappers or error handling libraries.
+
+The CallAdapter takes the original return type R and transforms it into a new type T. This is particularly useful when working with response wrappers like Either, Result, or ApiResponse.
+
+Below is an example using a custom CallAdapter with a Result wrapper:
+```dart
+  class MyCallAdapter<T> extends CallAdapter<Future<T>, Future<Result<T>>> {
+    @override
+    Future<Result<T>> adapt(Future<T> Function() call) async {
+      try {
+        final response = await call();
+        return Result<T>.ok(response);
+      } catch (e) {
+        return Result.err(e.toString());
+      }
+    }
+  }
+
+  @RestApi(callAdapter: MyCallAdapter)
+  abstract class RestClient {
+    factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
+
+    @GET('/')
+    Future<Result<User>> getUser();
+  }
+```
+
 ### Multiple endpoints support
 
 If you want to use multiple endpoints to your `RestClient`, you should pass your base url when you initiate `RestClient`. Any value defined in `RestApi` will be ignored.
@@ -210,7 +539,7 @@ If you want to use multiple endpoints to your `RestClient`, you should pass your
 ```dart
 @RestApi(baseUrl: 'this url will be ignored if baseUrl is passed')
 abstract class RestClient {
-  factory RestClient(Dio dio, {String baseUrl}) = _RestClient;
+  factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
 }
 
 final client = RestClient(dio, baseUrl: 'your base url');
@@ -248,7 +577,7 @@ E.g.
   parser: Parser.FlutterCompute,
 )
 abstract class RestClient {
-  factory RestClient(Dio dio, {String baseUrl}) = _RestClient;
+  factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
 
   @GET('/task')
   Future<Task> getTask();
@@ -279,7 +608,7 @@ Avoid using Map values, otherwise multiple background isolates will be spawned t
 
 ```dart
 abstract class RestClient {
-  factory RestClient(Dio dio, {String baseUrl}) = _RestClient;
+  factory RestClient(Dio dio, {String? baseUrl}) = _RestClient;
 
   // BAD
   @GET('/tasks')
@@ -321,6 +650,16 @@ For the project not to be confused with the files generated by the retrofit you 
 Add "ignore files and folders"
 
 `*.g.dart`
+
+## Videos
+- [Flutter Rest API - Simplifying Make API Call Using Retrofit](https://www.youtube.com/watch?v=zjNhlmue5Os)
+- [Flutter retrofit implementation | Flutter Network Calls | Source Code In Desc | flutter coding](https://www.youtube.com/watch?v=OZF9mqKbi3k)
+- [Flutter retrofit api call | GET | amplifyabhi ](https://www.youtube.com/watch?v=ARIy5OSIspQ)
+- [Flutter - Retrofit Setup & Explanation | Clean Architecture | In Hindi](https://www.youtube.com/watch?v=e6JV-t9Yo3U)
+- [How to call API using retrofit in flutter application and JSON parsing ?](https://www.youtube.com/watch?v=UDhRvP1Iafc)
+- [API Integration in Flutter using Retrofit | Flutter Package Tutorial](https://www.youtube.com/watch?v=upX9T_ciWz4&t=39s)
+- [Build A News App - Make Request To API Using Retrofit | PART 4 - Flutter Clean Architecture](https://www.youtube.com/watch?v=kjMoW4cs2kU)
+
 
 ## Credits
 

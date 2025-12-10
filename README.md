@@ -17,7 +17,7 @@ Add the generator to your dev dependencies
 
 ```yaml
 dependencies:
-  retrofit: ^4.6.0
+  retrofit: ^4.9.0
   logger: ^2.6.0  # for logging purpose
   json_annotation: ^4.9.0
 
@@ -202,6 +202,77 @@ The HTTP methods in the below sample are supported.
   Future<String> postUrlEncodedFormData(@Field() String hello);
 ```
 
+#### Runtime Content-Type for Multipart Uploads
+
+Use `@PartMap()` to provide runtime metadata (like `contentType` and `fileName`) for multipart file uploads:
+
+```dart
+  @POST('/api/files')
+  @MultiPart()
+  Future<void> uploadFile({
+    @Part(name: 'file') required File file,
+    @PartMap() Map<String, dynamic>? metadata,
+  });
+  
+  // Usage - Upload different file types to the same endpoint
+  
+  // Upload a JPEG image
+  await client.uploadFile(
+    file: File('/path/to/image.jpg'),
+    metadata: {
+      'file_contentType': 'image/jpeg',
+      'file_fileName': 'photo.jpg',
+    },
+  );
+  
+  // Upload a PDF document
+  await client.uploadFile(
+    file: File('/path/to/document.pdf'),
+    metadata: {
+      'file_contentType': 'application/pdf',
+      'file_fileName': 'report.pdf',
+    },
+  );
+```
+
+The `@PartMap()` annotation accepts a `Map<String, dynamic>` with keys in the format:
+- `'<partName>_contentType'` - Sets the content type for the part
+- `'<partName>_fileName'` - Sets the file name for the part
+
+**Fallback behavior:**
+- Runtime values from `@PartMap()` override static values from `@Part()` annotation
+- If `@PartMap()` value is not provided, uses static value from `@Part()` annotation
+- If neither is provided:
+  - `fileName` defaults to the file's actual name (extracted from file path)
+  - `contentType` defaults to `null` (Dio will auto-detect based on file extension)
+
+#### Dynamic Field Names for Multiple Files
+
+Use `@Part()` with `Map<String, File>` to upload multiple files with dynamic field names:
+
+```dart
+  @POST('/api/files')
+  @MultiPart()
+  Future<void> uploadFiles(@Part() Map<String, File> files);
+  
+  // Usage - Upload multiple files with custom field names
+  await client.uploadFiles({
+    'image[0]': File('/path/to/photo1.jpg'),
+    'image[1]': File('/path/to/photo2.jpg'),
+    'document': File('/path/to/report.pdf'),
+  });
+```
+
+This feature also supports:
+- `Map<String, MultipartFile>` - For files already wrapped in MultipartFile
+- `Map<String, List<int>>` - For raw byte data
+- Nullable maps: `Map<String, File>?`
+
+**Use cases:**
+- Uploading arrays of files where each file needs a unique indexed name (e.g., `image[0]`, `image[1]`)
+- Uploading files to endpoints that require specific field names determined at runtime
+- Sending multiple files of different types in a single request
+
 ### Get original HTTP response
 
 ```dart
@@ -234,6 +305,39 @@ The HTTP methods in the below sample are supported.
   })
   Future<Task> getTasks();
 ```
+
+* Add global HTTP headers to all requests in the API
+
+You can define headers at the `@RestApi` level that will be automatically included in all requests:
+
+```dart
+  @RestApi(
+    baseUrl: 'https://api.example.com',
+    headers: {
+      'User-Agent': 'MyApp/1.0.0',
+      'X-Platform': 'mobile',
+    },
+  )
+  abstract class ApiService {
+    factory ApiService(Dio dio, {String? baseUrl}) = _ApiService;
+
+    // This request will automatically include User-Agent and X-Platform headers
+    @GET('/users')
+    Future<List<User>> getUsers();
+
+    // You can add method-specific headers that combine with global headers
+    @GET('/profile')
+    @Headers(<String, dynamic>{'Authorization': 'Bearer token'})
+    Future<User> getProfile();
+
+    // Method-level headers override global headers with the same key
+    @GET('/settings')
+    @Headers(<String, dynamic>{'X-Platform': 'web'})
+    Future<Settings> getSettings();
+  }
+```
+
+**Note:** Method-level headers (via `@Headers` or `@Header` parameter) will override global headers if they have the same key.
 
 
 

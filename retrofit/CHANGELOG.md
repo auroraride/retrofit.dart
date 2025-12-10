@@ -1,3 +1,13 @@
+## 4.9.1 (Unreleased)
+- Add Response parameter to ParseErrorLogger callback
+
+## 4.9.0
+- Version bump to 4.9.0
+
+## 4.8.0
+- Add global headers support to @RestApi annotation
+- This version is required for retrofit_generator 10.1.0+
+
 ## 4.7.2
 - Add comments for each public methods
 - Enable linter rules for public api docs

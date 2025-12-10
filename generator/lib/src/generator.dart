@@ -582,11 +582,6 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
       return TypeChecker.typeNamed(type, inPackage: 'protobuf');
     }
 
-    const fpdartTypes = {Either};
-    if (fpdartTypes.contains(type)) {
-      return TypeChecker.typeNamed(type, inPackage: 'fpdart');
-    }
-
     return TypeChecker.typeNamed(type);
   }
 
@@ -691,20 +686,20 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
       ? type.typeArguments.first
       : null;
 
-  /// Gets the first positional field type from a record type.
+  /// Gets the generic type argument for a response type.
+  DartType? _getResponseType(DartType type) => _genericOf(type);
+
+  /// Gets the first type from Records
   DartType? _getRecordsFirstTypeOf(DartType type) =>
       type is RecordTypeImpl && type.positionalFields.isNotEmpty
           ? type.positionalFields.first.type
           : null;
 
-  /// Gets the last type argument from an interface type.
+  /// Gets the last type argument from a type (used for Either)
   DartType? _getLastTypeOf(DartType type) =>
       type is InterfaceType && type.typeArguments.isNotEmpty
           ? type.typeArguments.last
           : null;
-
-  /// Gets the generic type argument for a response type.
-  DartType? _getResponseType(DartType type) => _genericOf(type);
 
   /// get types for `Map<String, List<User>>`, `A<B,C,D>`
   /// Gets all generic type arguments for a response type.
@@ -1000,15 +995,9 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
         wrappedReturnType != null &&
         _isExactly(retrofit.HttpResponse, wrappedReturnType);
 
-    // Check for Either and Records return types
-    final isEither = wrappedReturnType != null && _isExactly(Either, wrappedReturnType);
+    final isEither = wrappedReturnType != null && 
+        _typeChecker(Either).isExactlyType(wrappedReturnType);
     final isRecords = wrappedReturnType is RecordTypeImpl;
-    final needsErrorHandling = isEither || isRecords;
-
-    // Add try block for Either and Records
-    if (needsErrorHandling) {
-      blocks.add(const Code('try {'));
-    }
 
     final returnType = isWrappedWithHttpResponseWrapper
         ? _getResponseType(wrappedReturnType)
@@ -1017,6 +1006,12 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
             : isRecords
                 ? _getRecordsFirstTypeOf(wrappedReturnType!)
                 : wrappedReturnType;
+    
+    // Wrap entire response handling in try-catch for Either/Records support
+    if (isEither || isRecords) {
+      blocks.add(const Code('try {'));
+    }
+    
     if (returnType == null || 'void' == returnType.toString()) {
       if (isWrappedWithHttpResponseWrapper) {
         blocks
@@ -1031,20 +1026,6 @@ final httpResponse = HttpResponse(null, $_resultVar);
 $returnAsyncWrapper httpResponse;
 '''),
           );
-      } else if (isEither) {
-        blocks.add(
-          refer(
-            'await $_dioVar.fetch',
-          ).call([options], {}, [refer('void')]).statement,
-        );
-        blocks.add(Code('$returnAsyncWrapper Either.right(null);'));
-      } else if (isRecords) {
-        blocks.add(
-          refer(
-            'await $_dioVar.fetch',
-          ).call([options], {}, [refer('void')]).statement,
-        );
-        blocks.add(Code('$returnAsyncWrapper (null, null);'));
       } else {
         blocks.add(
           refer(
@@ -1577,9 +1558,9 @@ $returnAsyncWrapper httpResponse;
         blocks.add(Code('$returnAsyncWrapper $_valueVar;'));
       }
     }
-
-    // Add catch block for Either and Records
-    if (needsErrorHandling) {
+    
+    // Add catch block for Either/Records support
+    if (isEither || isRecords) {
       blocks.add(const Code('} on DioException catch(e) {'));
       if (isEither) {
         blocks.add(Code('$returnAsyncWrapper Either.left(e);'));
@@ -2206,8 +2187,8 @@ if (T != dynamic &&
                   : refer(p.displayName).property('toIso8601String').call([]);
             } else if (_isEnum(p.type) && !_hasToJson(p.type)) {
               value = p.type.nullabilitySuffix == NullabilitySuffix.question
-                  ? refer(p.displayName).nullSafeProperty('name')
-                  : refer(p.displayName).property('name');
+                  ? refer(p.displayName)
+                  : refer(p.displayName);
             } else {
               value = p.type.nullabilitySuffix == NullabilitySuffix.question
                   ? refer(p.displayName).nullSafeProperty('toJson').call([])
@@ -2775,7 +2756,7 @@ if (T != dynamic &&
 
       // Get PartMap parameter if it exists
       final partMapAnnotation = _getAnnotation(m, retrofit.PartMap);
-      final partMapParam = partMapAnnotation?.item1;
+      final partMapParam = partMapAnnotation?.element;
 
       parts.forEach((p, r) {
         final fieldName =

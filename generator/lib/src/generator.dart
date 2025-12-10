@@ -17,7 +17,6 @@ import 'package:fpdart/fpdart.dart';
 import 'package:protobuf/protobuf.dart' as protobuf;
 import 'package:retrofit/retrofit.dart' as retrofit;
 import 'package:source_gen/source_gen.dart';
-import 'package:tuple/tuple.dart';
 
 const _analyzerIgnores =
     '// ignore_for_file: unnecessary_brace_in_string_interps,no_leading_underscores_for_local_identifiers,unused_element,unnecessary_string_interpolations,unused_element_parameter,avoid_unused_constructor_parameters,unreachable_from_main';
@@ -661,14 +660,14 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
   }
 
   /// Gets the specified type annotation on a single method parameter.
-  Tuple2<FormalParameterElement, ConstantReader>? _getAnnotation(
+  ({FormalParameterElement element, ConstantReader reader})? _getAnnotation(
     MethodElement m,
     Type type,
   ) {
     for (final p in m.formalParameters) {
       final a = _typeChecker(type).firstAnnotationOf(p);
       if (a != null) {
-        return Tuple2(p, ConstantReader(a));
+        return (element: p, reader: ConstantReader(a));
       }
     }
     return null;
@@ -925,7 +924,7 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
 
     /// gen code for request body for content-type on Protobuf body
     final annotation = _getAnnotation(m, retrofit.Body);
-    final bodyName = annotation?.item1;
+    final bodyName = annotation?.element;
     if (bodyName != null) {
       if (_isAssignable(protobuf.GeneratedMessage, bodyName.type)) {
         extraOptions[_contentType] = literal(
@@ -963,18 +962,18 @@ class RetrofitGenerator extends GeneratorForAnnotation<retrofit.RestApi> {
 
     final cancelToken = _getAnnotation(m, retrofit.CancelRequest);
     if (cancelToken != null) {
-      namedArguments[_cancelToken] = refer(cancelToken.item1.displayName);
+      namedArguments[_cancelToken] = refer(cancelToken.element.displayName);
     }
 
     final sendProgress = _getAnnotation(m, retrofit.SendProgress);
     if (sendProgress != null) {
-      namedArguments[_onSendProgress] = refer(sendProgress.item1.displayName);
+      namedArguments[_onSendProgress] = refer(sendProgress.element.displayName);
     }
 
     final receiveProgress = _getAnnotation(m, retrofit.ReceiveProgress);
     if (receiveProgress != null) {
       namedArguments[_onReceiveProgress] = refer(
-        receiveProgress.item1.displayName,
+        receiveProgress.element.displayName,
       );
     }
 
@@ -2347,7 +2346,7 @@ if (T != dynamic &&
     );
 
     final annotation = _getAnnotation(m, retrofit.Body);
-    final bodyName = annotation?.item1;
+    final bodyName = annotation?.element;
 
     final bodyExtraAnnotations = _getAnnotations(m, retrofit.BodyExtra);
     final bodyExtras = <Expression, Reference>{};
@@ -2374,7 +2373,7 @@ if (T != dynamic &&
 
     if (bodyName != null) {
       final nullToAbsent =
-          annotation!.item2.peek('nullToAbsent')?.boolValue ?? false;
+          annotation!.reader.peek('nullToAbsent')?.boolValue ?? false;
       if (_isAssignable(Map, bodyName.type)) {
         blocks.add(
           declareFinal(dataVar)
